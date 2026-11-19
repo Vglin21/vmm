@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-// #include <wchar.h>
+#include <wchar.h>
 
 #ifndef UINT_ALIASES
 #define UINT_ALIASES
@@ -65,9 +65,12 @@ VMM_DECL void vmm_free_chunks(void);
 VMM_DECL void vmm_assign_addr_to_chunk(dword addr, word chunk_id, bool read_only);
 VMM_DECL void vmm_assign_addr_to_chunks(dword addr, word chunk_id, bool read_only, size_t count);
 
-// VMM_DECL bool vmm_insert_rom(const char *rom_path);
-// VMM_DECL bool vmm_insert_rom_w(const wchar_t *rom_path);
-// VMM_DECL bool vmm_read_rom();
+VMM_DECL bool vmm_insert_rom(const char *rom_path);
+VMM_DECL bool vmm_insert_rom_w(const wchar_t *rom_path);
+VMM_DECL void vmm_remove_rom(void);
+
+VMM_DECL bool vmm_read_rom(dword addr, word chunk_id, size_t count);
+VMM_DECL bool vmm_read_rom_from_array(dword addr, word chunk_id, size_t count, byte *rom, size_t rom_size);
 
 VMM_DECL inline void vmm_write(dword addr, byte value);
 VMM_DECL inline byte vmm_read(dword addr);
@@ -77,6 +80,8 @@ VMM_DECL vmm_chunk_ptr vmm_get_chunk_ptr(word chunk_id);
 #ifdef _cplusplus
 }
 #endif
+
+#define VMM_IMPLEMENTATION
 
 #if defined(VMM_IMPLEMENTATION) || defined(VGLIN_IMPLEMENTATION)
 #define VMM_IMPLEMENTATION_INCLUDED (1)
@@ -89,6 +94,7 @@ VMM_DECL vmm_chunk_ptr vmm_get_chunk_ptr(word chunk_id);
     #endif
 #endif
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -104,6 +110,8 @@ typedef struct {
     byte *memory;
     size_t memory_size;
     vmm_chunk chunks[VMM_MAX_CHUNK_COUNT];
+    FILE *rom;
+    size_t rom_size;
 } vmm_state;
 
 VMM_DEF vmm_state _vmm = {0};
@@ -146,6 +154,81 @@ VMM_DEF void vmm_assign_addr_to_chunk(dword addr, word chunk_id, bool read_only)
 VMM_DEF void vmm_assign_addr_to_chunks(dword addr, word chunk_id, bool read_only, size_t count) {
     for (size_t i = 0; i < count && chunk_id + i < VMM_MAX_CHUNK_COUNT; ++i)
         vmm_assign_addr_to_chunk(addr + i * _vmm.chunk_size, chunk_id + i, read_only);
+}
+
+VMM_DEF bool _vmm_insert_rom(FILE *file) {
+    if (!file) return false;
+
+    fseek(file, 0, SEEK_END);
+    long fsize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    if (!fsize) {
+        fclose(file);
+        return false;
+    }
+
+    if (_vmm.rom) fclose(_vmm.rom);
+    _vmm.rom = file;
+    _vmm.rom_size = fsize;
+
+    return true;
+}
+
+VMM_DEF bool vmm_insert_rom(const char *rom_path) {
+    if (!rom_path) return false;
+    return _vmm_insert_rom(fopen(rom_path, "rb"));
+}
+VMM_DEF bool vmm_insert_rom_w(const wchar_t *rom_path) {
+    if (!rom_path) return false;
+#ifdef _WIN32
+    return _vmm_insert_rom(_wfopen(rom_path, L"rb"));
+#else
+    return false;
+#endif
+}
+VMM_DEF void vmm_remove_rom(void) {
+    if (_vmm.rom) {
+        fclose(_vmm.rom);
+        _vmm.rom = NULL;
+        _vmm.rom_size = 0;
+    }
+}
+
+VMM_DEF bool vmm_read_rom(dword addr, word chunk_id, size_t count) {
+    if (!_vmm.rom) return false;
+
+    for (size_t i = 0; (chunk_id+i) < VMM_MAX_CHUNK_COUNT && i < count; ++i) {
+        vmm_chunk *chunk = &_vmm.chunks[chunk_id+i];
+        if (chunk->addr != VMM_EMPTY_CHUNK) {
+            if ((addr + _vmm.chunk_size*(i+1)) > _vmm.rom_size) {
+                dword size = _vmm.rom_size - (addr + _vmm.chunk_size*i);
+
+                fseek(_vmm.rom, addr + _vmm.chunk_size*i, SEEK_SET);
+                fread(&_vmm.memory[chunk->addr], 1, size, _vmm.rom);
+
+                break;
+            } else {
+                fseek(_vmm.rom, addr + _vmm.chunk_size*i, SEEK_SET);
+                fread(&_vmm.memory[chunk->addr], 1, _vmm.chunk_size, _vmm.rom);
+            }
+        }
+    }
+}
+VMM_DEF bool vmm_read_rom_from_array(dword addr, word chunk_id, size_t count, byte *rom, size_t rom_size) {
+    if (!rom || !rom_size) return false;
+
+    for (size_t i = 0; (chunk_id+i) < VMM_MAX_CHUNK_COUNT && i < count; ++i) {
+        vmm_chunk *chunk = &_vmm.chunks[chunk_id+i];
+        if (chunk->addr != VMM_EMPTY_CHUNK) {
+            if ((addr + _vmm.chunk_size*(i+1)) > rom_size) {
+                dword size = rom_size - (addr + _vmm.chunk_size*i);
+                memcpy(&_vmm.memory[chunk->addr], &rom[addr + _vmm.chunk_size*i], size);
+
+                break;
+            } else memcpy(&_vmm.memory[chunk->addr], &rom[addr + _vmm.chunk_size*i], _vmm.chunk_size);
+        }
+    }
 }
 
 VMM_DEF inline void vmm_write(dword addr, byte value) {
