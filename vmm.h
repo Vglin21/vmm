@@ -250,7 +250,7 @@ VMM_DEF inline byte vmm_read(dword addr) {
         return 0;
 }
 
-VMM_DEF vmm_chunk_ptr vmm_get_chunk(word chunk_id) {
+VMM_DEF vmm_chunk_ptr vmm_get_chunk_ptr(word chunk_id) {
     if (chunk_id >= VMM_MAX_CHUNK_COUNT) return NULL;
 
     dword chunk_addr = _vmm.chunks[chunk_id].addr;
