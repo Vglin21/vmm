@@ -126,7 +126,7 @@ VMM_DEF void vmm_set_chunk_size(vmm_chunk_size chunk_size) {
 
 VMM_DEF bool vmm_allocate_chunks(size_t count) {
     byte *new_memory;
-    if (!(new_memory = malloc(_vmm.memory_size = _vmm.chunk_size * count))) return false;
+    if (!(new_memory = (byte*)malloc(_vmm.memory_size = _vmm.chunk_size * count))) return false;
 
     memset(_vmm.chunks, 0xff, sizeof(_vmm.chunks));
 
